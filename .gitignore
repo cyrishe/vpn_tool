@@ -1,0 +1,22 @@
+# Python caches and local test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# macOS metadata copied by Finder/archive tools
+.DS_Store
+._*
+
+# Local development databases and secrets
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+
+# Swift build output
+.build/
+
