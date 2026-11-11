@@ -6,9 +6,9 @@ Requires=wg-quick@wg-regional.service
 
 [Service]
 Type=notify
-WorkingDirectory=/opt/regional-vpn/service
+WorkingDirectory=/opt/regional-vpn-gateway/service
 ExecStartPre=/usr/sbin/ip link set dev wg-regional up
-ExecStart=/opt/regional-vpn/.venv/bin/python -m gateway_agent.agent --control-url ${VPN_CONTROL_URL} --ca-cert /etc/regional-vpn/control.crt --credentials /etc/regional-vpn/gateway.json --interface wg-regional
+ExecStart=/usr/bin/python3 -m gateway_agent.agent --control-url ${VPN_CONTROL_URL} --credentials /etc/regional-vpn/gateway.json --interface wg-regional
 EnvironmentFile=/etc/regional-vpn/agent.env
 ExecStopPost=/usr/sbin/ip link set dev wg-regional down
 WatchdogSec=20

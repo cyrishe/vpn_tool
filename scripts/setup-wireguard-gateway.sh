@@ -8,7 +8,7 @@ fi
 [[ $(uname -s) == Linux && $EUID == 0 ]] || { echo 'Run as root on Ubuntu/Debian.' >&2; exit 1; }
 [[ ! -e /etc/wireguard/wg-regional.conf || "${1:-}" == --resume ]] || { echo 'wg-regional already configured; refusing to overwrite.' >&2; exit 1; }
 apt-get update
-apt-get install -y wireguard-tools iptables python3
+apt-get install -y wireguard-tools iptables python3 ca-certificates
 install -d -m 0700 /etc/wireguard /etc/regional-vpn
 umask 077
 if [[ ! -e /etc/wireguard/regional.key ]]; then

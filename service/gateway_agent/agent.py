@@ -12,7 +12,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from control_plane.gateways import valid_public_key
+from control_plane.security import valid_public_key
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -83,7 +83,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--control-url", required=True)
     parser.add_argument("--credentials", required=True)
-    parser.add_argument("--ca-cert")
+    parser.add_argument("--ca-cert", default=os.getenv("VPN_CONTROL_CA_CERT"))
     parser.add_argument("--interface", default="wg-regional")
     args = parser.parse_args()
     url = urllib.parse.urlsplit(args.control_url)

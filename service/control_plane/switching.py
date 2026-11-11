@@ -19,7 +19,8 @@ from .models import (
 )
 from .schemas import SwitchOperationOut, TunnelProfileOut
 from .time_utils import utcnow
-from .gateways import sweep, entitled, valid_public_key
+from .gateways import sweep, entitled
+from .security import valid_public_key
 
 
 def _client_address(session: Session, device: Device) -> str:

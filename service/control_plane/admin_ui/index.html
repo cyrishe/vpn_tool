@@ -31,23 +31,55 @@
       </nav>
       <section id="nodes" class="panel">
         <div class="section-heading"><h2>地域节点</h2><button id="refresh-nodes" class="subtle">刷新状态</button></div>
-        <details class="card">
-          <summary>登记新节点</summary>
-          <p class="hint">在 Ubuntu 节点安装 WireGuard 后，填写公网地址和公钥。登记完成后下载凭证并启动 Agent。</p>
-          <form id="enroll" class="fields">
-            <label>节点名<input name="name" placeholder="shanghai-02" required maxlength="63"></label>
-            <label>所属地域代码<input name="region" list="region-codes" placeholder="shanghai" required maxlength="63"></label>
-            <label>公网 IPv4 与 UDP 端口<input name="endpoint" placeholder="公网 IPv4:51820" required maxlength="21"></label>
-            <label>WireGuard 公钥<input name="public_key" required minlength="44" maxlength="44" autocomplete="off"></label>
-            <label>连接容量<input name="capacity" type="number" value="100" min="1" max="65534" required></label>
-            <div class="form-action"><button type="submit">登记节点</button></div>
+        <details id="node-enrollment" class="card">
+          <summary>接入新 Ubuntu 节点</summary>
+          <form id="enroll">
+            <section class="setup-step">
+              <h3>1. 登录新机器并安装 WireGuard</h3>
+              <p class="hint">在云控制台找到新机器的公网 IPv4，使用这台机器已有的 SSH 密钥或登录密码，并在安全组开放入站 UDP 51820。</p>
+              <div class="fields">
+                <label>新机器公网 IPv4<input name="ip" inputmode="decimal" placeholder="填写云控制台上的 IPv4" required maxlength="15"></label>
+                <div class="form-action"><button id="download-gateway" type="button" class="subtle">下载 Ubuntu 部署包</button></div>
+              </div>
+              <p class="hint">把部署包保存到「下载」，然后在 Mac 终端执行：</p>
+              <div class="command"><pre id="prepare-mac"></pre><button type="button" class="subtle" data-copy="prepare-mac">复制</button></div>
+              <p class="hint">SSH 登录成功后，在新机器的终端执行：</p>
+              <div class="command"><pre id="prepare-ubuntu"></pre><button type="button" class="subtle" data-copy="prepare-ubuntu">复制</button></div>
+            </section>
+            <section class="setup-step">
+              <h3>2. 填写公钥并登记</h3>
+              <p class="hint">公钥是新机器的 WireGuard 身份，取自安装输出的 <code>Gateway public key</code>。如需再次查看，在新机器上执行 <code>sudo wg show wg-regional public-key</code>。私钥留在服务器。</p>
+              <div class="fields">
+                <label>节点名<input name="name" placeholder="shanghai-02" required maxlength="63"></label>
+                <label>所属地域代码<input name="region" list="region-codes" placeholder="shanghai" required maxlength="63"></label>
+                <label>WireGuard 公钥<input name="public_key" required minlength="44" maxlength="44" autocomplete="off"></label>
+                <label>连接容量<input name="capacity" type="number" value="100" min="1" max="65534" required></label>
+                <div class="form-action"><button type="submit">登记节点</button></div>
+              </div>
+            </section>
           </form>
         </details>
         <section id="credential-panel" class="card credential" hidden>
-          <h3>保存节点凭证</h3>
-          <p>凭证仅在登记时返回。下载后通过 SSH 安装到对应节点的 <code>/etc/regional-vpn/gateway.json</code>，设置权限为 <code>0600</code>。</p>
-          <button id="download-credential" type="button">下载 gateway.json</button>
-          <button id="close-credential" type="button" class="subtle">关闭</button>
+          <h3>3. 下载凭证并启动 Agent</h3>
+          <p class="hint">凭证仅在登记时返回。下载后只传到刚登记的机器，Agent 用它向中心报到。</p>
+          <p><button id="download-credential" type="button">下载节点凭证</button></p>
+          <label>中心 HTTPS 地址<input id="center-url" type="url" placeholder="https://中心公网地址" maxlength="255"></label>
+          <p id="local-center-hint" class="hint" hidden>当前是本地演示。真实接入请在已部署的 HTTPS 中心后台操作，远程 Ubuntu 无法连接 Mac 上的 localhost。</p>
+          <p class="hint">在 Mac 新开一个终端，上传凭证：</p>
+          <div class="command"><pre id="agent-mac"></pre><button type="button" class="subtle" data-copy="agent-mac">复制</button></div>
+          <p class="hint">回到新机器的 SSH 终端，安装并启动 Agent：</p>
+          <div class="command"><pre id="agent-ubuntu"></pre><button type="button" class="subtle" data-copy="agent-ubuntu">复制</button></div>
+          <section class="setup-step">
+            <h3>4. 检查心跳并上线</h3>
+            <p class="hint">中心收到心跳后，节点进入「待核验」。核对云安全组和出口公网 IP 后点击「上线」。上线后，连接对应地域验证实际出口。</p>
+            <p id="agent-status" role="status" class="hint"></p>
+            <p class="hint">心跳未到时，在新机器查看 <code>sudo journalctl -u regional-gateway -n 30 --no-pager</code>。</p>
+            <p class="form-action">
+              <button id="check-agent" type="button" class="subtle">检查 Agent 心跳</button>
+              <button id="enable-node" type="button" hidden>上线</button>
+              <button id="close-credential" type="button" class="subtle">关闭接入指引</button>
+            </p>
+          </section>
         </section>
         <div class="card listing">
           <form id="filter-nodes" class="filter">

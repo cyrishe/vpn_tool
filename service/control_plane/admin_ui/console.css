@@ -57,6 +57,12 @@ td button + button { margin-left: 6px; }
 #notice { background: #e8f3fe; border: 1px solid #b9d6f7; border-radius: 8px; padding: 10px 14px; margin: 0 0 14px; }
 #notice.error { background: #fff0f0; border-color: #eac2c2; color: #a0282c; }
 .credential { border-color: #d9be78; background: #fffaf0; }
+.setup-step { margin-top: 18px; }
+.setup-step + .setup-step { border-top: 1px solid var(--line); padding-top: 18px; }
+.setup-step .fields { margin-top: 10px; }
+.credential > label { max-width: 440px; }
+.command { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px; margin: 8px 0 12px; }
+.command pre { background: #eef2f7; border: 1px solid var(--line); border-radius: 6px; margin: 0; padding: 8px 10px; overflow-x: auto; }
 @media (max-width: 720px) {
   .shell { width: calc(100% - 24px); }
   .fields { grid-template-columns: 1fr; }

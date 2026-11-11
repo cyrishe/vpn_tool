@@ -1,5 +1,7 @@
 import base64
 from datetime import timedelta
+from io import BytesIO
+import tarfile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -46,6 +48,26 @@ def test_admin_disabled_by_default(client):
     assert client.get("/admin/api/nodes").status_code == 404
 
 
+def test_gateway_bundle_requires_admin_and_contains_only_installer_files(console):
+    client, admin = console
+    assert client.get("/admin/api/gateway-bundle").status_code == 401
+    response = client.get("/admin/api/gateway-bundle", headers=admin)
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    assert 'filename="regional-vpn-gateway.tar.gz"' in response.headers["Content-Disposition"]
+    with tarfile.open(fileobj=BytesIO(response.content), mode="r:gz") as bundle:
+        assert all(member.isfile() for member in bundle)
+        assert set(bundle.getnames()) == {
+            "scripts/setup-wireguard-gateway.sh",
+            "scripts/install-wireguard-agent.sh",
+            "service/control_plane/__init__.py",
+            "service/control_plane/security.py",
+            "service/gateway_agent/__init__.py",
+            "service/gateway_agent/agent.py",
+            "service/gateway_agent/regional-gateway.service",
+        }
+
+
 def test_admin_api_rejects_user_and_cannot_echo_credentials(console):
     client, admin = console
     assert client.get("/admin").status_code == 200
@@ -86,6 +108,8 @@ def test_node_enrollment_drain_and_retirement_through_console(console):
     listing = client.get("/admin/api/nodes?region=shanghai", headers=admin)
     assert gateway_token not in listing.text
     assert listing.json()[0]["heartbeat_age_seconds"] is None
+    assert client.get(f"/admin/api/nodes/{node_id}", headers=admin).json() == listing.json()[0]
+    assert client.get(f"/admin/api/nodes/{node_id}", headers=gateway_auth).status_code == 401
     assert client.get("/admin/api/nodes", headers=gateway_auth).status_code == 401
 
     def state(action):
@@ -99,7 +123,7 @@ def test_node_enrollment_drain_and_retirement_through_console(console):
     assert state("online").status_code == 409
     assert state("drain").status_code == 409
     assert sync().status_code == 200
-    assert client.get("/admin/api/nodes", headers=admin).json()[0]["status"] == "verifying"
+    assert client.get(f"/admin/api/nodes/{node_id}", headers=admin).json()["status"] == "verifying"
     with client.app.state.database.session_factory() as session:
         session.scalar(select(GatewayNode).where(GatewayNode.id == node_id)).last_heartbeat_at = utcnow() - timedelta(seconds=31)
         session.commit()

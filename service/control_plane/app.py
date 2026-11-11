@@ -87,7 +87,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(build_api_router(resolved_settings))
     app.include_router(gateway_router)
     if resolved_settings.admin_token:
-        app.include_router(build_admin_router(resolved_settings.admin_token))
+        app.include_router(build_admin_router(
+            resolved_settings.admin_token, resolved_settings.gateway_ca_certificate,
+        ))
     if resolved_settings.environment == "development":
         @app.get("/", include_in_schema=False)
         def development_preview():

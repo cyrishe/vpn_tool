@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -20,10 +20,11 @@ from sqlalchemy.orm import Session
 from .auth import DBSession, bearer_scheme
 from .database import begin_write
 from .errors import APIError
-from .gateways import LEASE_SECONDS, change_gateway_status, sweep, valid_public_key
+from .gateway_bundle import BUNDLE_NAME, build_gateway_bundle
+from .gateways import LEASE_SECONDS, change_gateway_status, sweep
 from .models import GatewayCredential, GatewayNode, LogicalRegion, Plan, PlanRegion, Subscription, User
 from .query_service import active_subscription_query
-from .security import hash_access_token, hash_password, issue_access_token
+from .security import hash_access_token, hash_password, issue_access_token, valid_public_key
 from .time_utils import utcnow
 
 ASSETS = Path(__file__).with_name("admin_ui")
@@ -150,7 +151,7 @@ def commit_admin(session: Session, action: str, target: str) -> None:
     LOG.info("VPN admin action=%s target=%s", action, target)
 
 
-def build_admin_router(token: str) -> APIRouter:
+def build_admin_router(token: str, gateway_ca_certificate: Path | None = None) -> APIRouter:
     if not re.fullmatch(r"vpn_admin_[A-Za-z0-9_-]{43,}", token):
         raise ValueError("Generate VPN_ADMIN_TOKEN using vpn_admin_ plus secrets.token_urlsafe(32).")
     token_hash = hash_access_token(token)
@@ -173,6 +174,16 @@ def build_admin_router(token: str) -> APIRouter:
     @router.get("/console.js")
     def script():
         return FileResponse(ASSETS / "console.js", media_type="text/javascript")
+
+    @api.get("/gateway-bundle", response_class=Response)
+    def download_gateway_bundle() -> Response:
+        try:
+            payload = build_gateway_bundle(gateway_ca_certificate)
+        except (OSError, ValueError):
+            LOG.exception("Could not package gateway installer")
+            raise APIError(503, "gateway_bundle_unavailable", "部署包暂不可用，请检查中心部署文件。") from None
+        return Response(payload, media_type="application/gzip",
+                        headers={"Content-Disposition": f'attachment; filename="{BUNDLE_NAME}"'})
 
     @api.get("/regions")
     def regions(session: DBSession, offset: Offset = 0) -> list[RegionOut]:
@@ -229,6 +240,14 @@ def build_admin_router(token: str) -> APIRouter:
         commit_admin(session, "node.enroll", node.id)
         return GatewayEnrollment(node=gateway_out(node, region, utcnow()),
                                  credential={"gateway_id": node.id, "token": gateway_token})
+
+    @api.get("/nodes/{node_id}")
+    def get_node(node_id: uuid.UUID, session: DBSession) -> GatewayOut:
+        node = session.get(GatewayNode, str(node_id))
+        if node is None:
+            raise APIError(404, "admin_node_not_found", "未找到节点。")
+        region = session.get(LogicalRegion, node.region_id)
+        return gateway_out(node, region, utcnow())
 
     @api.post("/nodes/{node_id}/state")
     def lifecycle(node_id: uuid.UUID, payload: GatewayAction, session: DBSession) -> GatewayOut:

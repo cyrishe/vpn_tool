@@ -37,7 +37,7 @@ sudo systemctl restart regional-control
 `journalctl -u regional-control` 中查找 `VPN admin action=`。
 
 - **地域**可新增、修改显示名称和省级代码，也可停用。地域代码固定，客户端的权限仍跟随地域。停用会停止调度并释放该地域的现有连接。
-- **节点**显示心跳时间、调度状态和分配数。填入 Ubuntu 节点的公网 IPv4、UDP 端口及 WireGuard 公钥进行登记，下载只返回一次的 `gateway.json`，按下文安装 Agent。首个心跳后在后台核验并上线。更换机器时，在同一地域登记新节点并上线，再排空、退役旧节点。用户继续选原地域。
+- **节点**显示心跳时间、调度状态和分配数。「接入新 Ubuntu 节点」会提供部署包和两段 SSH 操作的命令。更换机器时，在同一地域登记新节点并上线，再排空、退役旧节点。用户继续选原地域。
 - **账号开通**按邮箱查找账号，为新账号设置初始密码，选择地域和从今天起的有效天数。保存会替换当前授权。付款与开通在首版由管理员处理。
 
 本地开发可设置同格式的 `VPN_ADMIN_TOKEN`，启动 `control_plane.app:app` 后访问
@@ -71,13 +71,14 @@ sudo -u regionalvpn regional-vpn-admin gateway beijing-01 --region beijing \
 ### 地域节点更换
 
 中心保留地域名称和用户权限；更换服务器时，在原地域注册一个**新节点**。
-在新机器运行 `scripts/setup-wireguard-gateway.sh`，开放入站 UDP 51820，
-记录它的公网 IPv4 与 WireGuard 公钥。用中心的 `gateway` 命令登记节点、生成凭证。
-在新机器的 `/opt/regional-vpn/service` 安装 `gateway_agent`、`control_plane` 和依赖，
-将凭证及中心公开证书分别安装为 `/etc/regional-vpn/gateway.json`（0600）和 `control.crt`。
-安装 `service/gateway_agent/regional-gateway.service`，在 `/etc/regional-vpn/agent.env`
-设置 `VPN_CONTROL_URL=https://中心地址`。跨机网关使用这个单元；同机网关使用
-`deploy/ubuntu/regional-gateway.service`。
+
+1. 打开已部署的 HTTPS 中心后台，选择「节点 → 接入新 Ubuntu 节点」。在云控制台复制新机器的公网 IPv4，并开放入站 UDP 51820。SSH 使用新机器的 `ubuntu` 登录凭据。
+2. 下载部署包并填写公网 IPv4。在 Mac 终端运行页面生成的 `scp` 和 `ssh` 命令。登录新机器后，运行页面给出的解压和安装命令。WireGuard 公钥出现在 `Gateway public key:` 后面，随时可用 `sudo wg show wg-regional public-key` 重查。私钥保存在新机器。
+3. 把公钥和地域填入后台并登记。下载 `gateway-节点名.json`，按页面命令从 Mac 上传，然后在 SSH 终端运行 `scripts/install-wireguard-agent.sh`。脚本先验证中心 HTTPS，再安装凭证（0600）并启动 Agent。Ubuntu 中心提供的部署包附带公开证书。
+4. 回到后台点「检查 Agent 心跳」。出现「待核验」后，检查云安全组、出口公网 IPv4，再点「上线」。最后用客户端连接对应地域，验证实际出口。更换旧机时，先确保新机能接单，再对旧机执行「排空」和「退役」。
+
+同机网关仍使用 `deploy/ubuntu/regional-gateway.service`。后台部署包面向独立 Ubuntu 节点。
+本地 `localhost` 后台可预览流程，实际接入时需用线上 HTTPS 中心。
 
 ```bash
 sudo -u regionalvpn regional-vpn-admin nodes

@@ -8,6 +8,14 @@ import secrets
 PBKDF2_ITERATIONS = 310_000
 
 
+def valid_public_key(value: str) -> bool:
+    try:
+        raw = base64.b64decode(value, validate=True)
+        return len(raw) == 32 and any(raw) and base64.b64encode(raw).decode() == value
+    except ValueError:
+        return False
+
+
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac(

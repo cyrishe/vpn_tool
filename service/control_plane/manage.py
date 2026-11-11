@@ -9,10 +9,10 @@ from sqlalchemy import select
 
 from .config import Settings
 from .database import Database, begin_write
-from .gateways import change_gateway_status, valid_public_key
+from .gateways import change_gateway_status
 from .models import (GatewayCredential, GatewayNode, LogicalRegion, Plan, PlanRegion,
                      Subscription, User)
-from .security import hash_access_token, hash_password, issue_access_token
+from .security import hash_access_token, hash_password, issue_access_token, valid_public_key
 from .time_utils import utcnow
 
 

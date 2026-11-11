@@ -6,6 +6,7 @@ const pageSize = 50;
 const offsets = { node: 0, region: 0 };
 let token = "";
 let credential = null;
+let enrolledNode = null;
 let nodeFilter = "";
 let editingRegion = null;
 let busy = false;
@@ -28,6 +29,9 @@ function selectPanel(panel) {
 
 function clearCredential() {
   credential = null;
+  enrolledNode = null;
+  byId("agent-status").textContent = "";
+  byId("enable-node").hidden = true;
   byId("credential-panel").hidden = true;
 }
 
@@ -53,10 +57,11 @@ function lock() {
   byId("logout").hidden = true;
   offsets.node = offsets.region = 0;
   nodeFilter = "";
+  renderPreparation();
   notice();
 }
 
-async function api(path, method = "GET", body) {
+async function adminRequest(path, method = "GET", body) {
   const response = await fetch("/admin/api/" + path, {
     method,
     headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
@@ -66,12 +71,16 @@ async function api(path, method = "GET", body) {
     redirect: "error",
   });
   if (response.status === 401) lock();
-  const result = await response.json();
   if (!response.ok) {
+    const result = await response.json();
     const fields = result.error?.details?.map((item) => item.loc.at(-1)).join("、");
     throw new Error(fields ? "请检查字段 " + fields : (result.error?.message ?? "请求失败。"));
   }
-  return result;
+  return response;
+}
+
+async function api(path, method = "GET", body) {
+  return (await adminRequest(path, method, body)).json();
 }
 
 async function run(action, button) {
@@ -253,28 +262,132 @@ onSubmit("filter-nodes", async (form) => {
   await loadNodes(0);
 });
 
+function validIPv4(value) {
+  const parts = value.split(".");
+  return parts.length === 4 && parts.every((part) => /^(0|[1-9][0-9]{0,2})$/.test(part) && Number(part) <= 255);
+}
+
+function centerOrigin(value) {
+  if (!/^https:\/\/[a-z0-9.-]+(?::[0-9]{1,5})?\/?$/i.test(value)) return "";
+  try {
+    const url = new URL(value);
+    if (url.hostname === "localhost" || url.hostname.startsWith("127.") || url.port === "0") return "";
+    return url.origin;
+  } catch {
+    return "";
+  }
+}
+
+function command(id, lines, canCopy = true) {
+  byId(id).textContent = lines.join("\n");
+  document.querySelector('[data-copy="' + id + '"]').disabled = !canCopy;
+}
+
+function renderPreparation() {
+  const ip = byId("enroll").elements.ip.value.trim();
+  const valid = validIPv4(ip);
+  const host = "ubuntu@" + (valid ? ip : "节点公网IPv4");
+  command("prepare-mac", [
+    'scp "$HOME/Downloads/regional-vpn-gateway.tar.gz" ' + host + ': &&',
+    'ssh ' + host,
+  ], valid);
+  command("prepare-ubuntu", [
+    'mkdir -p "$HOME/regional-vpn-gateway" &&',
+    'tar -xzf "$HOME/regional-vpn-gateway.tar.gz" -C "$HOME/regional-vpn-gateway" &&',
+    'cd "$HOME/regional-vpn-gateway" &&',
+    'sudo bash scripts/setup-wireguard-gateway.sh',
+  ]);
+}
+
+function renderAgentSetup() {
+  if (!enrolledNode) return;
+  const filename = "gateway-" + enrolledNode.name + ".json";
+  const host = "ubuntu@" + enrolledNode.endpoint.split(":")[0];
+  const local = '"$HOME/Downloads/' + filename + '"';
+  const center = centerOrigin(byId("center-url").value.trim());
+  command("agent-mac", [
+    "chmod 600 " + local + " &&",
+    "scp " + local + " " + host + ":" + filename,
+  ]);
+  command("agent-ubuntu", [
+    'cd "$HOME/regional-vpn-gateway" &&',
+    'sudo bash scripts/install-wireguard-agent.sh ' + (center || "https://中心公网地址") + ' "$HOME/' + filename + '"',
+  ], Boolean(center));
+}
+
+function downloadFile(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+byId("enroll").elements.ip.addEventListener("input", renderPreparation);
+renderPreparation();
+byId("center-url").addEventListener("input", renderAgentSetup);
+byId("download-gateway").addEventListener("click", (event) => run(async () => {
+  const response = await adminRequest("gateway-bundle");
+  downloadFile(await response.blob(), "regional-vpn-gateway.tar.gz");
+}, event.currentTarget));
+for (const button of document.querySelectorAll("[data-copy]")) {
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(byId(button.dataset.copy).textContent);
+      notice("已复制命令。");
+    } catch {
+      notice("请选中命令并手动复制。", true);
+    }
+  });
+}
+
 onSubmit("enroll", async (form) => {
   if (credential) throw new Error("请先保存或关闭上一个节点凭证。");
   const payload = formValues(form);
-  for (const name of ["name", "region", "endpoint", "public_key"]) payload[name] = payload[name].trim();
+  const ip = payload.ip.trim();
+  if (!validIPv4(ip)) throw new Error("请输入有效的节点公网 IPv4。");
+  payload.endpoint = ip + ":51820";
+  delete payload.ip;
+  for (const name of ["name", "region", "public_key"]) payload[name] = payload[name].trim();
   payload.capacity = Number(payload.capacity);
   const result = await api("nodes", "POST", payload);
   credential = result.credential;
+  enrolledNode = result.node;
   form.reset();
+  renderPreparation();
+  byId("node-enrollment").open = false;
+  byId("center-url").value = centerOrigin(location.origin);
+  byId("local-center-hint").hidden = Boolean(centerOrigin(location.origin));
+  renderAgentSetup();
+  byId("agent-status").textContent = "等待 Agent 首次连接。";
   byId("credential-panel").hidden = false;
   await loadNodes(0);
   notice("节点已登记。请保存凭证并启动 Agent。");
 });
 byId("close-credential").addEventListener("click", clearCredential);
 byId("download-credential").addEventListener("click", () => {
-  if (!credential) return;
-  const url = URL.createObjectURL(new Blob([JSON.stringify(credential, null, 2) + "\n"], { type: "application/json" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "gateway.json";
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  if (credential) {
+    const blob = new Blob([JSON.stringify(credential, null, 2) + "\n"], { type: "application/json" });
+    downloadFile(blob, "gateway-" + enrolledNode.name + ".json");
+  }
 });
+byId("check-agent").addEventListener("click", (event) => run(async () => {
+  const node = await api("nodes/" + enrolledNode.id);
+  const verifying = node.status === "verifying" && node.heartbeat_age_seconds !== null && node.heartbeat_age_seconds < 30;
+  byId("enable-node").hidden = !verifying;
+  byId("agent-status").textContent = verifying ? "已收到心跳，节点待核验。" :
+    node.status === "ready" ? "节点已上线。" :
+    node.status === "terminated" ? "节点已退役。" : "未收到近期心跳，请在新机器检查 Agent 日志。";
+  await loadNodes();
+}, event.currentTarget));
+byId("enable-node").addEventListener("click", (event) => run(async () => {
+  if (!window.confirm("已核对云安全组和公网出口，允许此节点接收连接？")) return;
+  await api("nodes/" + enrolledNode.id + "/state", "POST", { action: "online" });
+  byId("enable-node").hidden = true;
+  byId("agent-status").textContent = "节点已上线。请用客户端连接该地域验证出口。";
+  await loadNodes();
+}, event.currentTarget));
 
 onSubmit("region-form", async (form) => {
   const payload = formValues(form);

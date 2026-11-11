@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,7 @@ class Settings:
     token_ttl_hours: int = 12
     seed_demo_data: bool = True
     admin_token: str | None = field(default=None, repr=False)
+    gateway_ca_certificate: Path | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":

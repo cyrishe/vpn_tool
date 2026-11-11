@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends
@@ -12,19 +11,11 @@ from .database import begin_write
 from .errors import APIError
 from .models import (Device, GatewayCredential, GatewayNode, LogicalRegion,
                      PeerAssignment, Plan, PlanRegion, Subscription, SwitchOperation, User)
-from .security import hash_access_token
+from .security import hash_access_token, valid_public_key
 from .time_utils import utcnow
 
 LEASE_SECONDS = 30
 PENDING_SECONDS = 120
-
-
-def valid_public_key(value: str) -> bool:
-    try:
-        raw = base64.b64decode(value, validate=True)
-        return len(raw) == 32 and any(raw) and base64.b64encode(raw).decode() == value
-    except ValueError:
-        return False
 
 
 def entitled(session, device, region_id):

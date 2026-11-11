@@ -1,5 +1,6 @@
 """Fixed entry point for the Ubuntu control server."""
 import os
+from pathlib import Path
 
 from .app import create_app
 from .config import Settings
@@ -9,4 +10,5 @@ app = create_app(Settings(
     environment="production",
     seed_demo_data=False,
     admin_token=os.getenv("VPN_ADMIN_TOKEN"),
+    gateway_ca_certificate=Path("/etc/regional-vpn/control.crt"),
 ))
