@@ -50,6 +50,7 @@ class GatewayBootstrap:
     ssh_helper: Path
     center_url: str
     enrollment_key: str = field(repr=False)
+    ssh_password: str | None = field(default=None, repr=False)
 
     def __post_init__(self):
         if not self.ssh_helper.is_absolute():
@@ -61,17 +62,22 @@ class GatewayBootstrap:
             raise ValueError("VPN_GATEWAY_CONTROL_URL must be reachable from the gateway.")
         if not re.fullmatch(r"[A-Za-z0-9_-]{43,}", self.enrollment_key):
             raise ValueError("Generate VPN_GATEWAY_BOOTSTRAP_KEY with secrets.token_urlsafe(32).")
+        if self.ssh_password and any(char in self.ssh_password for char in "\r\n"):
+            raise ValueError("VPN_GATEWAY_SSH_PASSWORD must be a single line.")
 
     def token(self, gateway_id: str) -> str:
         digest = hmac.digest(self.enrollment_key.encode("ascii"), gateway_id.encode("ascii"), "sha256")
         return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
     def run(self, ip: str, command: str, archive: bytes, timeout: int, stage: str) -> str:
+        helper_env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
+        if self.ssh_password:
+            helper_env["VPN_GATEWAY_SSH_PASSWORD"] = self.ssh_password
         try:
             result = subprocess.run(
                 [str(self.ssh_helper), ip, "bash -c " + shlex.quote(command)],
                 input=archive, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}, timeout=timeout, check=False,
+                env=helper_env, timeout=timeout, check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             LOG.warning("Gateway bootstrap %s failed ip=%s reason=%s", stage, ip, type(error).__name__)

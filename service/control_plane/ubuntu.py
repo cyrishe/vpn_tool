@@ -15,6 +15,7 @@ if ssh_helper:
             ssh_helper=Path(ssh_helper),
             center_url=os.getenv("VPN_GATEWAY_CONTROL_URL", ""),
             enrollment_key=os.getenv("VPN_GATEWAY_BOOTSTRAP_KEY", ""),
+            ssh_password=os.getenv("VPN_GATEWAY_SSH_PASSWORD"),
         )
     except ValueError:
         logging.getLogger("uvicorn.error").error("SSH gateway bootstrap disabled: invalid center configuration.")

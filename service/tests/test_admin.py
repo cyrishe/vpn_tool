@@ -76,11 +76,14 @@ def test_ssh_bootstrap_reuses_identity_after_install_failure(console, tmp_path):
     _, admin = console
     helper = tmp_path / "ssh-helper"
     recorded = tmp_path / "first-enrollment.json"
+    password = "test password $!"
     helper.write_text(
         f"#!{sys.executable}\n"
         "import io, json, os, shlex, subprocess, sys, tarfile\n"
         "from pathlib import Path\n"
         "assert 'VPN_GATEWAY_BOOTSTRAP_KEY' not in os.environ\n"
+        f"assert os.environ['VPN_GATEWAY_SSH_PASSWORD'] == {password!r}\n"
+        f"assert all({password!r} not in argument for argument in sys.argv)\n"
         "assert sys.argv[1] == '8.8.4.4'\n"
         "shell, option, command = shlex.split(sys.argv[2])\n"
         "assert (shell, option) == ('bash', '-c')\n"
@@ -98,7 +101,7 @@ def test_ssh_bootstrap_reuses_identity_after_install_failure(console, tmp_path):
         "assert json.loads(recorded.read_bytes()) == json.loads(enrollment)\n"
     )
     helper.chmod(0o700)
-    bootstrap = GatewayBootstrap(helper, "https://center.example.com", issue_access_token())
+    bootstrap = GatewayBootstrap(helper, "https://center.example.com", issue_access_token(), ssh_password=password)
     settings = replace(console[0].app.state.settings, database_url=f"sqlite:///{tmp_path / 'automatic.db'}",
                        gateway_bootstrap=bootstrap)
     with TestClient(create_app(settings), base_url="https://testserver") as client:
