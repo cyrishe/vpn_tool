@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header, Request
 from sqlalchemy import select, text
 
 from .auth import CurrentUser, DBSession, authenticate
+from .database import begin_write
 from .config import Settings
 from .errors import APIError
 from .models import Device, GatewayNode, PeerAssignment, Plan, Subscription, SwitchOperation
@@ -75,6 +76,7 @@ def build_api_router(settings: Settings) -> APIRouter:
     def register_device(
         payload: DeviceCreate, user: CurrentUser, session: DBSession
     ) -> DeviceOut:
+        begin_write(session)
         existing = session.scalar(
             select(Device).where(
                 Device.user_id == user.id,
@@ -123,6 +125,7 @@ def build_api_router(settings: Settings) -> APIRouter:
 
     @router.post("/v1/devices/{device_id}/disconnect", response_model=DeviceOut, tags=["devices"])
     def disconnect_device(device_id: str, user: CurrentUser, session: DBSession) -> DeviceOut:
+        begin_write(session)
         device = session.get(Device, device_id)
         if device is None or device.user_id != user.id:
             raise APIError(404, "device_not_found", "The device was not found.")
@@ -160,6 +163,7 @@ def build_api_router(settings: Settings) -> APIRouter:
             str, Header(alias="Idempotency-Key", min_length=8, max_length=128)
         ],
     ) -> SwitchOperationOut:
+        begin_write(session)
         return prepare_switch(
             session,
             user,
@@ -170,6 +174,7 @@ def build_api_router(settings: Settings) -> APIRouter:
 
     @router.get("/v1/switches/{operation_id}", response_model=SwitchOperationOut, tags=["switching"])
     def switch_status(operation_id: str, user: CurrentUser, session: DBSession):
+        begin_write(session)
         sweep(session)
         operation = session.get(SwitchOperation, operation_id)
         if operation is None or operation.user_id != user.id:
@@ -188,6 +193,7 @@ def build_api_router(settings: Settings) -> APIRouter:
         user: CurrentUser,
         session: DBSession,
     ) -> SwitchOperationOut:
+        begin_write(session)
         return confirm_switch(session, user, operation_id, payload.success)
 
     return router

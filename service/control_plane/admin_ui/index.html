@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Regional VPN 管理后台</title>
+  <link rel="stylesheet" href="/admin/console.css">
+  <script src="/admin/console.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="shell heading">
+      <div><span class="brand">Regional VPN</span><h1>管理后台</h1></div>
+      <button id="logout" type="button" class="subtle" hidden>锁定后台</button>
+    </div>
+  </header>
+  <main class="shell">
+    <p id="notice" role="status" hidden></p>
+    <section id="login-panel" class="card login">
+      <h2>管理员登录</h2>
+      <form id="login">
+        <label>访问密钥<input type="password" name="token" autocomplete="off" required></label>
+        <button type="submit">进入后台</button>
+      </form>
+    </section>
+    <div id="console" hidden>
+      <nav aria-label="后台模块">
+        <button type="button" data-panel="nodes" aria-current="page">节点</button>
+        <button type="button" data-panel="regions">地域</button>
+        <button type="button" data-panel="accounts">账号开通</button>
+      </nav>
+      <section id="nodes" class="panel">
+        <div class="section-heading"><h2>地域节点</h2><button id="refresh-nodes" class="subtle">刷新状态</button></div>
+        <details class="card">
+          <summary>登记新节点</summary>
+          <p class="hint">在 Ubuntu 节点安装 WireGuard 后，填写公网地址和公钥。登记完成后下载凭证并启动 Agent。</p>
+          <form id="enroll" class="fields">
+            <label>节点名<input name="name" placeholder="shanghai-02" required maxlength="63"></label>
+            <label>所属地域代码<input name="region" list="region-codes" placeholder="shanghai" required maxlength="63"></label>
+            <label>公网 IPv4 与 UDP 端口<input name="endpoint" placeholder="公网 IPv4:51820" required maxlength="21"></label>
+            <label>WireGuard 公钥<input name="public_key" required minlength="44" maxlength="44" autocomplete="off"></label>
+            <label>连接容量<input name="capacity" type="number" value="100" min="1" max="65534" required></label>
+            <div class="form-action"><button type="submit">登记节点</button></div>
+          </form>
+        </details>
+        <section id="credential-panel" class="card credential" hidden>
+          <h3>保存节点凭证</h3>
+          <p>凭证仅在登记时返回。下载后通过 SSH 安装到对应节点的 <code>/etc/regional-vpn/gateway.json</code>，设置权限为 <code>0600</code>。</p>
+          <button id="download-credential" type="button">下载 gateway.json</button>
+          <button id="close-credential" type="button" class="subtle">关闭</button>
+        </section>
+        <div class="card listing">
+          <form id="filter-nodes" class="filter">
+            <label>筛选地域<input name="region" list="region-codes" placeholder="全部地域" maxlength="63"></label>
+            <button type="submit" class="subtle">筛选</button>
+          </form>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>节点</th><th>地域</th><th>公网地址</th><th>状态</th><th>最近心跳</th><th>分配 / 容量</th><th>操作</th></tr></thead>
+              <tbody id="node-rows"></tbody>
+            </table>
+          </div>
+          <div id="node-pages" class="pagination"></div>
+        </div>
+      </section>
+      <section id="regions" class="panel" hidden>
+        <div class="section-heading"><h2>地域</h2><button id="refresh-regions" class="subtle">刷新</button></div>
+        <details id="region-editor" class="card">
+          <summary id="region-form-title">新增地域</summary>
+          <form id="region-form" class="fields">
+            <label>地域代码<input name="code" placeholder="shanghai" required maxlength="63"></label>
+            <label>客户端显示名称<input name="name" placeholder="上海" required maxlength="64"></label>
+            <label>省级代码<input name="province_code" placeholder="CN-SH" required maxlength="32"></label>
+            <label class="checkbox"><input type="checkbox" name="is_enabled" checked>向已开通用户开放</label>
+            <div class="form-action"><button type="submit">保存地域</button><button type="button" id="reset-region" class="subtle">重置</button></div>
+          </form>
+        </details>
+        <div class="card listing">
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>名称</th><th>地域代码</th><th>省级代码</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody id="region-rows"></tbody>
+            </table>
+          </div>
+          <div id="region-pages" class="pagination"></div>
+        </div>
+      </section>
+      <section id="accounts" class="panel" hidden>
+        <div class="section-heading"><h2>账号开通</h2></div>
+        <div class="card">
+          <form id="grant" class="fields">
+            <label>账号邮箱<input name="email" type="email" required maxlength="254"></label>
+            <div class="form-action"><button id="lookup-account" type="button" class="subtle">查询账号</button></div>
+            <p id="account-summary" class="hint wide" hidden></p>
+            <label>地域代码<input name="regions" placeholder="shanghai, beijing" required></label>
+            <label>从今天起有效天数<input name="days" type="number" value="30" min="1" max="366" required></label>
+            <label>初始密码（仅新账号）<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>
+            <div class="form-action"><button type="submit">保存授权</button></div>
+            <p class="hint wide">保存后，所填地域及有效期会替换该账号当前的开通设置。</p>
+          </form>
+        </div>
+      </section>
+      <datalist id="region-codes"></datalist>
+    </div>
+  </main>
+</body>
+</html>

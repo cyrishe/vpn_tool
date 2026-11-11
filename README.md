@@ -39,6 +39,7 @@ python3 -m uvicorn control_plane.app:app --host 127.0.0.1 --port 8017
 浏览器预览和 Swift Package 示例使用模拟隧道。真实 WireGuard 出口已有
 [命令行和 macOS 试运行客户端](docs/live-poc.md)。
 [macOS 系统 VPN 客户端](docs/macos-native-vpn.md)内置 WireGuard，已实现复用系统授权的流程，签名安装和真机验收待完成。
+中心支持[网页管理后台](docs/ubuntu-deployment.md#网页管理后台)，可管理地域、节点和人工开通。
 架构和分阶段计划见 [docs/mvp-architecture.md](docs/mvp-architecture.md)。
 
 ## 产品原型快速启动

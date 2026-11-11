@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Generator
 
 from fastapi import Request
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -33,6 +33,12 @@ class Database:
 
     def dispose(self) -> None:
         self.engine.dispose()
+
+
+def begin_write(session: Session) -> None:
+    # SQLite ignores SELECT FOR UPDATE. Reserve the writer before reading lifecycle state.
+    if session.get_bind().dialect.name == "sqlite":
+        session.execute(text("BEGIN IMMEDIATE"))
 
 
 def get_session(request: Request) -> Generator[Session, None, None]:

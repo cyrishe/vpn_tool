@@ -21,6 +21,28 @@
 SQLite 为固定单进程部署，当前不引入 PostgreSQL、Docker 或多环境配置。
 中心以专用 regionalvpn 系统用户运行，网关 Agent 独立持有网络配置能力。
 
+## 网页管理后台
+
+管理页面在中心的 `/admin`，使用与现有客户端相同的 SQLite 数据库。
+默认关闭。部署新版代码和 systemd 单元后，在中心生成独立的管理员访问密钥：
+
+```bash
+sudo sh -c 'umask 077; set -C; python3 -c "import secrets; print(\"VPN_ADMIN_TOKEN=vpn_admin_\" + secrets.token_urlsafe(32))" > /etc/regional-vpn/admin.env'
+sudo systemctl daemon-reload
+sudo systemctl restart regional-control
+```
+
+在 HTTPS 页面填写 `VPN_ADMIN_TOKEN` 的值。普通用户和节点的凭证无后台权限。
+替换该文件中的密钥并重启中心可撤销旧密钥。操作记录可在
+`journalctl -u regional-control` 中查找 `VPN admin action=`。
+
+- **地域**可新增、修改显示名称和省级代码，也可停用。地域代码固定，客户端的权限仍跟随地域。停用会停止调度并释放该地域的现有连接。
+- **节点**显示心跳时间、调度状态和分配数。填入 Ubuntu 节点的公网 IPv4、UDP 端口及 WireGuard 公钥进行登记，下载只返回一次的 `gateway.json`，按下文安装 Agent。首个心跳后在后台核验并上线。更换机器时，在同一地域登记新节点并上线，再排空、退役旧节点。用户继续选原地域。
+- **账号开通**按邮箱查找账号，为新账号设置初始密码，选择地域和从今天起的有效天数。保存会替换当前授权。付款与开通在首版由管理员处理。
+
+本地开发可设置同格式的 `VPN_ADMIN_TOKEN`，启动 `control_plane.app:app` 后访问
+`http://127.0.0.1:8017/admin`。
+
 ## 常用操作
 
 ```bash

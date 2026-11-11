@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from .auth import DBSession, bearer_scheme
+from .database import begin_write
 from .errors import APIError
 from .models import (Device, GatewayCredential, GatewayNode, LogicalRegion,
                      PeerAssignment, Plan, PlanRegion, Subscription, SwitchOperation, User)
@@ -78,11 +79,13 @@ def change_gateway_status(session, gateway, action):
         raise ValueError("Retired nodes must be enrolled again with a new identity.")
     if action == "online":
         if gateway.status not in ("verifying", "draining", "ready") or (
-            gateway.last_heartbeat_at < utcnow() - timedelta(seconds=LEASE_SECONDS)
+            gateway.last_heartbeat_at <= utcnow() - timedelta(seconds=LEASE_SECONDS)
         ):
             raise ValueError("Wait for a fresh heartbeat and verify the gateway first.")
         gateway.status = "ready"
     elif action == "drain":
+        if gateway.status not in ("ready", "draining"):
+            raise ValueError("Only an online gateway can be drained.")
         gateway.status = "draining"
     elif action == "retire":
         gateway.status = "terminated"
@@ -121,6 +124,7 @@ def sync(payload: SyncIn, session: DBSession, credentials=Depends(bearer_scheme)
     ))
     if credential is None:
         raise APIError(401, "invalid_gateway_token", "Invalid gateway credential.")
+    begin_write(session)
     gateway = session.get(GatewayNode, credential.gateway_id)
     if gateway.status == "terminated":
         raise APIError(403, "gateway_disabled", "Gateway disabled.")

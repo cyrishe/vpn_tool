@@ -8,7 +8,7 @@ from datetime import timedelta
 from sqlalchemy import select
 
 from .config import Settings
-from .database import Database
+from .database import Database, begin_write
 from .gateways import change_gateway_status, valid_public_key
 from .models import (GatewayCredential, GatewayNode, LogicalRegion, Plan, PlanRegion,
                      Subscription, User)
@@ -51,6 +51,7 @@ def main():
                 for node, code in nodes], indent=2))
             return
         if args.command == "node-state":
+            begin_write(session)
             node = session.scalar(select(GatewayNode).where(GatewayNode.name == args.name))
             if node is None:
                 parser.error("Unknown node.")

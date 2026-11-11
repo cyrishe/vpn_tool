@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 
 from .api import build_api_router
+from .admin import build_admin_router
 from .config import Settings
 from .database import Database
 from .errors import APIError
@@ -44,6 +45,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request.state.request_id = request_id
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
+        if request.url.path == "/admin" or request.url.path.startswith("/admin/"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+                "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+            )
         return response
 
     @app.exception_handler(APIError)
@@ -60,13 +69,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def validation_error_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        details = exc.errors()
+        if request.url.path.startswith("/admin/"):
+            details = [{"loc": error["loc"], "msg": error["msg"]} for error in details]
         return JSONResponse(
             status_code=422,
             content={
                 "error": {
                     "code": "validation_error",
                     "message": "The request payload or parameters are invalid.",
-                    "details": exc.errors(),
+                    "details": details,
                 },
                 "request_id": getattr(request.state, "request_id", None),
             },
@@ -74,6 +86,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(build_api_router(resolved_settings))
     app.include_router(gateway_router)
+    if resolved_settings.admin_token:
+        app.include_router(build_admin_router(resolved_settings.admin_token))
     if resolved_settings.environment == "development":
         @app.get("/", include_in_schema=False)
         def development_preview():

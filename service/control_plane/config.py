@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -12,6 +12,7 @@ class Settings:
     demo_password: str = "demo-password"
     token_ttl_hours: int = 12
     seed_demo_data: bool = True
+    admin_token: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -25,5 +26,6 @@ class Settings:
             demo_password=os.getenv("VPN_DEMO_PASSWORD", "demo-password"),
             token_ttl_hours=int(os.getenv("VPN_TOKEN_TTL_HOURS", "12")),
             seed_demo_data=environment == "development",
+            admin_token=os.getenv("VPN_ADMIN_TOKEN"),
         )
 
