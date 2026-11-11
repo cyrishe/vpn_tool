@@ -1,0 +1,16 @@
+[Unit]
+Description=Regional VPN database backup
+After=regional-control.service
+
+[Service]
+Type=oneshot
+User=regionalvpn
+Group=regionalvpn
+ExecStart=/opt/regional-vpn/.venv/bin/python /opt/regional-vpn/deploy/ubuntu/backup.py
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/var/lib/regional-vpn
+ReadWritePaths=/var/backups/regional-vpn

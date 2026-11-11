@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Header
-from sqlalchemy import select
+from fastapi import APIRouter, Header, Request
+from sqlalchemy import select, text
 
 from .auth import CurrentUser, DBSession, authenticate
 from .config import Settings
 from .errors import APIError
-from .models import Device, Plan, Subscription
+from .models import Device, GatewayNode, PeerAssignment, Plan, Subscription, SwitchOperation
 from .query_service import (
     active_subscription_query,
     get_authorized_regions,
@@ -26,21 +26,27 @@ from .schemas import (
     SwitchPrepareRequest,
     UserOut,
 )
-from .switching import confirm_switch, prepare_switch
+from .switching import confirm_switch, prepare_switch, _serialize_operation
+from .gateways import sweep
 from .time_utils import utcnow
+from .rate_limit import LoginLimiter
 
 
 def build_api_router(settings: Settings) -> APIRouter:
     router = APIRouter()
+    login_limiter = LoginLimiter()
 
     @router.get("/healthz", response_model=HealthOut, tags=["system"])
-    def healthz() -> HealthOut:
+    def healthz(session: DBSession) -> HealthOut:
+        session.execute(text("SELECT 1"))
         return HealthOut(status="ok")
 
     @router.post(
         "/v1/auth/login", response_model=LoginResponse, tags=["authentication"]
     )
-    def login(payload: LoginRequest, session: DBSession) -> LoginResponse:
+    def login(payload: LoginRequest, request: Request, session: DBSession) -> LoginResponse:
+        if settings.environment == "production":
+            login_limiter.check(request.client.host if request.client else "unknown")
         raw_token, token, user = authenticate(
             session, payload.email, payload.password, settings
         )
@@ -115,6 +121,31 @@ def build_api_router(settings: Settings) -> APIRouter:
         session.commit()
         return serialize_device(session, device)
 
+    @router.post("/v1/devices/{device_id}/disconnect", response_model=DeviceOut, tags=["devices"])
+    def disconnect_device(device_id: str, user: CurrentUser, session: DBSession) -> DeviceOut:
+        device = session.get(Device, device_id)
+        if device is None or device.user_id != user.id:
+            raise APIError(404, "device_not_found", "The device was not found.")
+        assignments = session.scalars(select(PeerAssignment).where(
+            PeerAssignment.device_id == device.id,
+            PeerAssignment.state.in_(["pending", "ready", "active", "draining"]),
+        )).all()
+        for assignment in assignments:
+            assignment.state = "released"
+            assignment.released_at = utcnow()
+            gateway = session.get(GatewayNode, assignment.gateway_id)
+            if gateway is not None:
+                gateway.current_peers = max(0, gateway.current_peers - 1)
+        # Finalize outstanding switches so a delayed confirmation cannot reconnect.
+        for operation in session.scalars(select(SwitchOperation).where(
+            SwitchOperation.device_id == device.id, SwitchOperation.status == "prepared"
+        )).all():
+            operation.status = "rolled_back"
+            operation.completed_at = utcnow()
+        device.active_assignment_id = None
+        session.commit()
+        return serialize_device(session, device)
+
     @router.post(
         "/v1/devices/{device_id}/switches",
         response_model=SwitchOperationOut,
@@ -136,6 +167,15 @@ def build_api_router(settings: Settings) -> APIRouter:
             payload.target_region_code,
             idempotency_key,
         )
+
+    @router.get("/v1/switches/{operation_id}", response_model=SwitchOperationOut, tags=["switching"])
+    def switch_status(operation_id: str, user: CurrentUser, session: DBSession):
+        sweep(session)
+        operation = session.get(SwitchOperation, operation_id)
+        if operation is None or operation.user_id != user.id:
+            raise APIError(404, "switch_operation_not_found", "The switch operation was not found.")
+        session.commit()
+        return _serialize_operation(session, operation)
 
     @router.post(
         "/v1/switches/{operation_id}/confirm",

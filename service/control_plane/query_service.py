@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from sqlalchemy import Select, and_, exists, select
 from sqlalchemy.orm import Session
 
@@ -36,6 +37,7 @@ def get_authorized_regions(session: Session, user_id: str) -> list[RegionOut]:
             GatewayNode.region_id == LogicalRegion.id,
             GatewayNode.status == "ready",
             GatewayNode.current_peers < GatewayNode.capacity,
+            ((GatewayNode.provider == "mock") | (GatewayNode.last_heartbeat_at > utcnow() - timedelta(seconds=30))),
         )
     )
     rows = session.execute(

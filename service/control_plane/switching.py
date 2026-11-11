@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import timedelta
+from sqlalchemy import select, update, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,16 +15,32 @@ from .models import (
     Subscription,
     SwitchOperation,
     User,
+    DeviceAddress,
 )
-from .query_service import active_subscription_query
 from .schemas import SwitchOperationOut, TunnelProfileOut
 from .time_utils import utcnow
+from .gateways import sweep, entitled, valid_public_key
 
 
-def _client_address(region: LogicalRegion, device: Device) -> str:
-    region_octet = max(1, min(region.sort_order // 10, 254))
-    device_octet = (int(device.id.replace("-", "")[:8], 16) % 250) + 2
-    return f"10.77.{region_octet}.{device_octet}/32"
+def _client_address(session: Session, device: Device) -> str:
+    existing = session.get(DeviceAddress, device.id)
+    if existing:
+        return existing.address
+    start = int(device.id.replace("-", "")[:8], 16) % 65000
+    for offset in range(65000):
+        number = (start + offset) % 65000 + 2
+        address = f"10.77.{number // 256}.{number % 256}/32"
+        try:
+            with session.begin_nested():
+                session.add(DeviceAddress(device_id=device.id, address=address))
+                session.flush()
+            return address
+        except IntegrityError:
+            existing = session.get(DeviceAddress, device.id)
+            if existing:
+                return existing.address
+            continue
+    raise APIError(503, "address_pool_full", "Address pool is full.")
 
 
 def _serialize_operation(
@@ -39,6 +56,7 @@ def _serialize_operation(
         and region is not None
         and assignment is not None
         and gateway is not None
+        and assignment.state == "ready"
     ):
         profile = TunnelProfileOut(
             profile_id=assignment.id,
@@ -67,6 +85,7 @@ def prepare_switch(
     target_region_code: str,
     idempotency_key: str,
 ) -> SwitchOperationOut:
+    sweep(session)
     existing = session.scalar(
         select(SwitchOperation).where(
             SwitchOperation.user_id == user.id,
@@ -74,7 +93,8 @@ def prepare_switch(
         )
     )
     if existing is not None:
-        if existing.device_id != device_id:
+        region = session.get(LogicalRegion, existing.target_region_id)
+        if existing.device_id != device_id or region.code != target_region_code:
             raise APIError(
                 409,
                 "idempotency_conflict",
@@ -82,7 +102,7 @@ def prepare_switch(
             )
         return _serialize_operation(session, existing)
 
-    device = session.get(Device, device_id)
+    device = session.scalar(select(Device).where(Device.id == device_id).with_for_update())
     if device is None or device.user_id != user.id:
         raise APIError(404, "device_not_found", "The device was not found.")
 
@@ -92,9 +112,7 @@ def prepare_switch(
     if region is None or not region.is_enabled:
         raise APIError(404, "region_not_found", "The target region is unavailable.")
 
-    subscription = session.scalar(
-        active_subscription_query(user.id).order_by(Subscription.ends_at.desc())
-    )
+    subscription = entitled(session, device, region.id)
     if subscription is None:
         raise APIError(
             403, "subscription_required", "An active subscription is required."
@@ -107,12 +125,18 @@ def prepare_switch(
             "The active subscription does not include this region.",
         )
 
+    if session.scalar(select(SwitchOperation.id).where(
+        SwitchOperation.device_id == device.id, SwitchOperation.status == "prepared"
+    )):
+        raise APIError(409, "switch_in_progress", "Finish the current switch first.")
+
     gateway = session.scalar(
         select(GatewayNode)
         .where(
             GatewayNode.region_id == region.id,
             GatewayNode.status == "ready",
             GatewayNode.current_peers < GatewayNode.capacity,
+            ((GatewayNode.provider == "mock") | (GatewayNode.last_heartbeat_at > utcnow() - timedelta(seconds=30))),
         )
         .order_by(GatewayNode.current_peers, GatewayNode.name)
     )
@@ -121,13 +145,23 @@ def prepare_switch(
             503, "region_capacity_unavailable", "No healthy gateway is available."
         )
 
-    next_version = device.config_version + 1
+    if gateway.provider != "mock" and not valid_public_key(device.tunnel_public_key):
+        raise APIError(422, "invalid_tunnel_key", "A real WireGuard public key is required.")
+    next_version = (session.scalar(select(func.max(PeerAssignment.config_version)).where(
+        PeerAssignment.device_id == device.id
+    )) or 0) + 1
+    reserved = session.execute(update(GatewayNode).where(
+        GatewayNode.id == gateway.id, GatewayNode.status == "ready",
+        GatewayNode.current_peers < GatewayNode.capacity,
+    ).values(current_peers=GatewayNode.current_peers + 1))
+    if reserved.rowcount != 1:
+        raise APIError(503, "region_capacity_unavailable", "Gateway capacity changed; retry.")
     assignment = PeerAssignment(
         device_id=device.id,
         gateway_id=gateway.id,
-        state="ready",
+        state="ready" if gateway.provider == "mock" else "pending",
         config_version=next_version,
-        client_address=_client_address(region, device),
+        client_address=_client_address(session, device),
     )
     session.add(assignment)
     session.flush()
@@ -141,7 +175,6 @@ def prepare_switch(
         idempotency_key=idempotency_key,
         status="prepared",
     )
-    gateway.current_peers += 1
     session.add(operation)
     try:
         session.commit()
@@ -162,6 +195,7 @@ def prepare_switch(
 def confirm_switch(
     session: Session, user: User, operation_id: str, success: bool
 ) -> SwitchOperationOut:
+    sweep(session)
     operation = session.get(SwitchOperation, operation_id)
     if operation is None or operation.user_id != user.id:
         raise APIError(
@@ -179,6 +213,8 @@ def confirm_switch(
     candidate_gateway = session.get(GatewayNode, candidate.gateway_id)
 
     now = utcnow()
+    if success and candidate.state != "ready":
+        raise APIError(409, "gateway_not_ready", "Wait for the gateway to apply the peer.")
     if success:
         previous = (
             session.get(PeerAssignment, operation.previous_assignment_id)

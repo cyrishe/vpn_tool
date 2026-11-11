@@ -1,5 +1,39 @@
 # Regional VPN
 
+## 固定服务器
+
+当前联调中心部署在 Ubuntu `101.34.21.167`，数据库为服务器上的 SQLite，
+服务、网关和备份均由 systemd 托管。客户端直接连接 HTTPS，不依赖 Mac 中心。
+当前操作说明以 [Ubuntu 部署文档](docs/ubuntu-deployment.md) 为准。
+
+最小原生 App：`bash scripts/build-macos-pilot.sh 101.34.21.167`。
+节点在中心按地域动态登记和上下线，客户端不维护节点清单。
+
+## 当前开发入口
+
+以下为保留的本地开发预览，与正式 Ubuntu 中心独立。
+
+核心服务端与地域节点接入见 [核心服务端](docs/core-server.md)。
+正式客户端需要系统 VPN 隧道；下方网页仅为既有流程预览。
+
+分模块计划和验收标准见 [开发计划](docs/development-plan.md)。
+第一阶段提供浏览器可操作预览，连接仍为模拟，不改变 IP 或路由。
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r service/requirements.txt
+cd service
+python3 -m uvicorn control_plane.app:app --host 127.0.0.1 --port 8017
+```
+
+打开 <http://127.0.0.1:8017>，使用 `demo@example.com` / `demo-password`。
+可验证登录、服务端地域列表、模拟连接、切换、断开和退出。
+预览仅在 development 环境提供。浏览器不是系统 VPN 客户端。
+
+macOS App 源码已补齐；当前机器的 Swift PackageDescription 工具链链接错误
+尚未解决，原生构建/运行未验收。真实 WireGuard 网关与手机端按后续阶段交付。
+
 本目录现在包含两个相互独立的部分：
 
 1. 原有的 Tailscale Exit Node 个人测试脚本。

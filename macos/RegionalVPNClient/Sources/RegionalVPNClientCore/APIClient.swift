@@ -40,6 +40,7 @@ public protocol ControlPlaneAPI: Sendable {
         operationId: String,
         success: Bool
     ) async throws -> SwitchOperation
+    func switchStatus(accessToken: String, operationId: String) async throws -> SwitchOperation
 }
 
 public struct ControlPlaneClient: ControlPlaneAPI, Sendable {
@@ -49,6 +50,16 @@ public struct ControlPlaneClient: ControlPlaneAPI, Sendable {
     public init(baseURL: URL, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.session = session
+    }
+
+    public func disconnectDevice(accessToken: String, deviceId: String) async throws -> Device {
+        try await requestWithoutBody(
+            path: "/v1/devices/\(deviceId)/disconnect", method: "POST", accessToken: accessToken
+        )
+    }
+
+    public func switchStatus(accessToken: String, operationId: String) async throws -> SwitchOperation {
+        try await requestWithoutBody(path: "/v1/switches/\(operationId)", method: "GET", accessToken: accessToken)
     }
 
     public func login(email: String, password: String) async throws -> LoginResponse {

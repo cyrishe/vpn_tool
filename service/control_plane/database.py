@@ -12,7 +12,7 @@ from .models import Base
 
 class Database:
     def __init__(self, url: str) -> None:
-        connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+        connect_args = {"check_same_thread": False, "timeout": 15} if url.startswith("sqlite") else {}
         self.engine = create_engine(url, connect_args=connect_args)
         if url.startswith("sqlite"):
             event.listen(self.engine, "connect", self._enable_sqlite_foreign_keys)

@@ -1,0 +1,26 @@
+[Unit]
+Description=Regional VPN WireGuard gateway agent
+After=network-online.target wg-quick@wg-regional.service regional-control.service
+Wants=network-online.target regional-control.service
+Requires=wg-quick@wg-regional.service
+
+[Service]
+Type=notify
+WorkingDirectory=/opt/regional-vpn/service
+ExecStartPre=/usr/sbin/ip link set dev wg-regional up
+ExecStart=/opt/regional-vpn/.venv/bin/python -m gateway_agent.agent --control-url https://127.0.0.1 --ca-cert /etc/regional-vpn/control.crt --credentials /etc/regional-vpn/gateway.json --interface wg-regional
+ExecStopPost=/usr/sbin/ip link set dev wg-regional down
+WatchdogSec=20
+TimeoutStartSec=20
+TimeoutStopSec=5
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+CapabilityBoundingSet=CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target

@@ -153,3 +153,28 @@ def test_authentication_and_device_ownership_are_server_side(
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "authentication_required"
 
+
+def test_disconnect_releases_and_blocks_late_confirmation(client, auth_headers):
+    device = register_device(client, auth_headers)
+    operation = prepare_switch(client, auth_headers, str(device["id"]), "shanghai", "disconnect-pending").json()
+    url = f"/v1/devices/{device['id']}/disconnect"
+    assert client.post(url).status_code == 401
+    for _ in range(2):
+        response = client.post(url, headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["active_region_code"] is None
+    late = client.post(f"/v1/switches/{operation['operation_id']}/confirm",
+                       headers=auth_headers, json={"success": True})
+    assert late.json()["status"] == "rolled_back"
+    assert client.get("/v1/devices", headers=auth_headers).json()[0]["active_region_code"] is None
+
+
+def test_disconnect_active_device(client, auth_headers):
+    device = register_device(client, auth_headers)
+    operation = prepare_switch(client, auth_headers, str(device["id"]), "shanghai", "disconnect-active").json()
+    client.post(f"/v1/switches/{operation['operation_id']}/confirm",
+                headers=auth_headers, json={"success": True})
+    response = client.post(f"/v1/devices/{device['id']}/disconnect", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["active_region_code"] is None
+

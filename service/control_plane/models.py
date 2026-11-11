@@ -228,6 +228,20 @@ class PeerAssignment(Base):
     )
 
 
+class GatewayCredential(Base):
+    __tablename__ = "gateway_credentials"
+
+    gateway_id: Mapped[str] = mapped_column(ForeignKey("gateway_nodes.id"), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+
+
+class DeviceAddress(Base):
+    __tablename__ = "device_addresses"
+
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), primary_key=True)
+    address: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+
+
 class SwitchOperation(Base):
     __tablename__ = "switch_operations"
 

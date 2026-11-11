@@ -1,5 +1,11 @@
 # Regional VPN macOS Client
 
+## 当前真实联调 App
+
+`PilotApp/` 是本机可构建的 AppKit 客户端，复用真实 WireGuard 控制逻辑。
+使用 [Ubuntu 部署文档](../../docs/ubuntu-deployment.md) 中的构建命令。
+下方 SwiftUI 包是保留的模拟原型，不是当前联调 App。
+
 SwiftUI macOS 客户端原型。当前真实连接本地控制面，但使用
 `MockTunnelDriver`，不会创建 VPN、修改 DNS 或系统路由。
 

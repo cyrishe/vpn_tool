@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse
 
 from .api import build_api_router
 from .config import Settings
 from .database import Database
 from .errors import APIError
 from .seed import seed_development_data
+from .gateways import router as gateway_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -70,6 +73,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     app.include_router(build_api_router(resolved_settings))
+    app.include_router(gateway_router)
+    if resolved_settings.environment == "development":
+        @app.get("/", include_in_schema=False)
+        def development_preview():
+            return FileResponse(Path(__file__).parent / "preview.html")
     return app
 
 

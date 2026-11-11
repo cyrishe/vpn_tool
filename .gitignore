@@ -19,4 +19,6 @@ htmlcov/
 
 # Swift build output
 .build/
+.venv/
+.runtime/
 

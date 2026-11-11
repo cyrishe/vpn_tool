@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regional VPN</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f7f7;color:#202a29;font:15px system-ui,sans-serif;letter-spacing:0}
+header{height:64px;background:white;border-bottom:1px solid #dde4e2;display:flex;align-items:center;justify-content:space-between;padding:0 24px;gap:16px}
+header strong{font-size:19px}header span{color:#64736c;font-size:13px}main{max-width:720px;margin:48px auto;padding:0 24px}h1{font-size:24px;margin:0 0 24px}
+label{display:block;font-size:13px;color:#4a5b52;margin:18px 0 8px}input,select{width:100%;font:inherit;border:1px solid #bac9c2;border-radius:6px;background:white;padding:12px;min-width:0}
+button{font:inherit;padding:11px 18px;border:1px solid #b7c7be;background:white;color:#24372b;border-radius:6px;cursor:pointer}button.primary{background:#176850;color:white;border-color:#176850}button:disabled{opacity:.45;cursor:default}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin:24px 0}.status{display:flex;align-items:center;gap:10px;margin:24px 0;font-size:20px}.dot{width:10px;height:10px;border-radius:50%;background:#89968e}.dot.active{background:#19835e}
+.line{display:flex;justify-content:space-between;gap:20px;padding:16px 0;border-bottom:1px solid #dce4df}.line span{color:#65756b}.line b{font-weight:500;overflow-wrap:anywhere;text-align:right}#error{color:#a02d36;background:#fff1f1;padding:12px;border-left:3px solid #c65c65;margin-top:24px;overflow-wrap:anywhere}#error:empty{display:none}.note{color:#8a631e;font-size:13px;border-top:1px solid #dce4df;padding-top:20px;margin-top:40px}#busy{color:#176850;font-size:13px;min-height:20px}[hidden]{display:none!important}@media(max-width:480px){header{padding:0 16px}header strong{font-size:17px}main{margin:28px auto;padding:0 16px}header span{max-width:120px;text-align:right}}
+</style>
+<header><strong>Regional VPN</strong><span>开发预览 · 模拟隧道</span></header>
+<main>
+<form id="login"><h1>登录账号</h1><label for="email">邮箱</label><input id="email" type="email" autocomplete="username" required><label for="password">密码</label><input id="password" type="password" autocomplete="current-password" required minlength="8"><div class="actions"><button class="primary" type="submit">登录</button></div></form>
+<section id="dashboard" hidden><div class="line"><span>当前账号</span><b id="account"></b></div><div class="status"><i class="dot" id="dot"></i><strong id="status">未连接</strong></div>
+<label for="region">地域</label><select id="region"></select><p id="empty" hidden>暂无已开通的地域</p>
+<div class="actions"><button class="primary" id="connect">连接</button><button id="disconnect" disabled>断开</button><button id="logout">退出账号</button></div>
+<div class="line"><span>当前地域</span><b id="current">—</b></div><div class="line"><span>出口 IP</span><b>未启用真实隧道</b></div><div class="line"><span>设备</span><b>浏览器预览设备</b></div></section>
+<p id="busy" role="status"></p><div id="error" role="alert"></div><p class="note">模拟连接，不改变本机 IP 或定位。</p>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let token = null, device = null, regions = [], active = null;
+let deviceId = localStorage.getItem('regional-preview-device');
+if (!deviceId) { deviceId = crypto.randomUUID(); localStorage.setItem('regional-preview-device', deviceId); }
+async function request(path, body, extra = {}) {
+  const response = await fetch(path, {method:body === undefined ? 'GET' : 'POST',
+    headers:{'Content-Type':'application/json', ...(token ? {Authorization:`Bearer ${token}`} : {}), ...extra},
+    ...(body === undefined ? {} : {body:JSON.stringify(body)})});
+  const result = await response.json();
+  if (!response.ok) throw Error(result.error?.message || `HTTP ${response.status}`);
+  return result;
+}
+function render() {
+  $('status').textContent = active ? '模拟连接已就绪' : '未连接';
+  $('dot').classList.toggle('active', !!active);
+  $('current').textContent = regions.find(r => r.code === active)?.name || '—';
+  $('connect').textContent = active ? '切换地域' : '连接';
+  $('disconnect').disabled = !active;
+  $('connect').disabled = !$('region').value;
+}
+async function run(message, action) {
+  $('error').textContent = ''; $('busy').textContent = message;
+  document.querySelectorAll('button,input,select').forEach(el => el.disabled = true);
+  try { await action(); } catch(error) { $('error').textContent = error.message; }
+  finally { document.querySelectorAll('button,input,select').forEach(el => el.disabled = false); $('busy').textContent = ''; render(); }
+}
+$('login').onsubmit = event => {
+  event.preventDefault();
+  run('正在登录…', async () => {
+    const response = await request('/v1/auth/login', {email:$('email').value, password:$('password').value});
+    token = response.access_token;
+    regions = await request('/v1/regions');
+    device = await request('/v1/devices', {client_device_id:deviceId, name:'Browser preview', platform:'macos', tunnel_public_key:`mock-browser-${deviceId}`});
+    $('region').replaceChildren(...regions.map(region => {const option = new Option(region.name + (region.availability === 'available' ? '' : ' · 暂不可用'), region.code); option.disabled = region.availability !== 'available'; return option;}));
+    const available = regions.find(r => r.availability === 'available');
+    $('region').value = available?.code || '';
+    $('empty').hidden = regions.length > 0;
+    $('account').textContent = response.user.email;
+    $('password').value = ''; $('login').hidden = true; $('dashboard').hidden = false;
+  });
+};
+$('connect').onclick = () => run('正在准备地域连接…', async () => {
+  const operation = await request(`/v1/devices/${device.id}/switches`, {target_region_code:$('region').value}, {'Idempotency-Key':crypto.randomUUID()});
+  if (operation.status !== 'prepared' || !operation.profile) throw Error('连接配置尚未就绪');
+  const confirmed = await request(`/v1/switches/${operation.operation_id}/confirm`, {success:true});
+  if (confirmed.status !== 'committed') throw Error('连接未确认，请重试');
+  active = confirmed.target_region_code;
+});
+async function disconnect() { await request(`/v1/devices/${device.id}/disconnect`, {}); active = null; }
+$('disconnect').onclick = () => run('正在断开…', disconnect);
+$('logout').onclick = () => run('正在退出…', async () => {
+  await disconnect(); token = null; device = null; regions = [];
+  $('dashboard').hidden = true; $('login').hidden = false;
+});
+$('region').onchange = render;
+</script>
+</html>
