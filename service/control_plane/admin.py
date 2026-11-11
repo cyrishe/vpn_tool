@@ -8,6 +8,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Address
 from pathlib import Path
+from threading import Lock
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from .auth import DBSession, bearer_scheme
 from .database import begin_write
+from .gateway_bootstrap import GatewayBootstrap
 from .errors import APIError
 from .gateway_bundle import BUNDLE_NAME, build_gateway_bundle
 from .gateways import LEASE_SECONDS, change_gateway_status, sweep
@@ -36,6 +38,13 @@ Province = Annotated[str, StringConstraints(pattern=r"^[A-Z0-9][A-Z0-9-]{0,31}$"
 Email = Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True, max_length=254,
                                          pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")]
 Offset = Annotated[int, Query(ge=0)]
+
+
+def public_ipv4(host: str) -> IPv4Address:
+    ip = IPv4Address(host)
+    if not ip.is_global or ip.is_multicast or ip.is_reserved:
+        raise ValueError("Use a public IPv4 address.")
+    return ip
 
 
 class RegionSettings(BaseModel):
@@ -64,9 +73,7 @@ class GatewayCreate(BaseModel):
     def endpoint_is_ipv4(cls, value: str) -> str:
         host, _, port = value.rpartition(":")
         try:
-            ip = IPv4Address(host)
-            if not ip.is_global or ip.is_multicast or ip.is_reserved:
-                raise ValueError
+            ip = public_ipv4(host)
             if not port.isascii() or not port.isdecimal() or not 1 <= int(port) <= 65535:
                 raise ValueError
         except ValueError:
@@ -96,6 +103,25 @@ class GatewayOut(BaseModel):
 class GatewayEnrollment(BaseModel):
     node: GatewayOut
     credential: dict[Literal["gateway_id", "token"], str]
+
+
+class BootstrapRequest(BaseModel):
+    ip: str = Field(max_length=15)
+    region: Code
+
+    @field_validator("ip")
+    @classmethod
+    def validate_ip(cls, value: str) -> str:
+        return str(public_ipv4(value))
+
+
+class BootstrapResult(BaseModel):
+    node: GatewayOut
+    public_key: str
+
+
+class BootstrapAvailability(BaseModel):
+    enabled: bool
 
 
 class GatewayAction(BaseModel):
@@ -151,10 +177,44 @@ def commit_admin(session: Session, action: str, target: str) -> None:
     LOG.info("VPN admin action=%s target=%s", action, target)
 
 
-def build_admin_router(token: str, gateway_ca_certificate: Path | None = None) -> APIRouter:
+def add_gateway(session: Session, payload: GatewayCreate, region: LogicalRegion,
+                gateway_id: str, gateway_token: str) -> GatewayNode:
+    node = GatewayNode(id=gateway_id, name=payload.name, region_id=region.id, provider="wireguard",
+                       cloud_region=region.code, endpoint=payload.endpoint, server_public_key=payload.public_key,
+                       status="provisioning", capacity=payload.capacity)
+    session.add(node)
+    try:
+        session.flush()
+    except IntegrityError:
+        raise APIError(409, "admin_node_exists", "节点名称已存在，请为新机器使用新名称。") from None
+    session.add(GatewayCredential(gateway_id=node.id, token_hash=hash_access_token(gateway_token)))
+    return node
+
+
+def bootstrap_target(session: Session, payload: BootstrapRequest, endpoint: str,
+                     bootstrap: GatewayBootstrap) -> tuple[LogicalRegion, GatewayNode | None]:
+    region = session.scalar(select(LogicalRegion).where(LogicalRegion.code == payload.region))
+    if region is None or not region.is_enabled:
+        raise APIError(404, "admin_region_not_found", "请选择已启用的地域。")
+    matches = session.scalars(select(GatewayNode).where(
+        GatewayNode.endpoint == endpoint, GatewayNode.status != "terminated"
+    )).all()
+    if not matches:
+        return region, None
+    node = matches[0]
+    credential = session.get(GatewayCredential, node.id)
+    if (len(matches) != 1 or node.region_id != region.id or credential is None
+            or not hmac.compare_digest(credential.token_hash, hash_access_token(bootstrap.token(node.id)))):
+        raise APIError(409, "gateway_endpoint_in_use", "这个 IP 已有节点登记。请在节点列表处理现有记录。")
+    return region, node
+
+
+def build_admin_router(token: str, gateway_ca_certificate: Path | None = None,
+                       bootstrap: GatewayBootstrap | None = None) -> APIRouter:
     if not re.fullmatch(r"vpn_admin_[A-Za-z0-9_-]{43,}", token):
         raise ValueError("Generate VPN_ADMIN_TOKEN using vpn_admin_ plus secrets.token_urlsafe(32).")
     token_hash = hash_access_token(token)
+    bootstrap_lock = Lock()
 
     def require_admin(credentials=Depends(bearer_scheme)):
         if credentials is None or not hmac.compare_digest(hash_access_token(credentials.credentials), token_hash):
@@ -227,19 +287,55 @@ def build_admin_router(token: str, gateway_ca_certificate: Path | None = None) -
         region = session.scalar(select(LogicalRegion).where(LogicalRegion.code == payload.region))
         if region is None:
             raise APIError(404, "admin_region_not_found", "请先创建对应地域。")
-        node = GatewayNode(id=str(uuid.uuid4()), name=payload.name, region_id=region.id, provider="wireguard",
-                           cloud_region=region.code, endpoint=payload.endpoint, server_public_key=payload.public_key,
-                           status="provisioning", capacity=payload.capacity)
-        session.add(node)
-        try:
-            session.flush()
-        except IntegrityError:
-            raise APIError(409, "admin_node_exists", "节点名称已存在，请为新机器使用新名称。") from None
         gateway_token = issue_access_token()
-        session.add(GatewayCredential(gateway_id=node.id, token_hash=hash_access_token(gateway_token)))
+        node = add_gateway(session, payload, region, str(uuid.uuid4()), gateway_token)
         commit_admin(session, "node.enroll", node.id)
         return GatewayEnrollment(node=gateway_out(node, region, utcnow()),
                                  credential={"gateway_id": node.id, "token": gateway_token})
+
+    @api.get("/gateway-bootstrap")
+    def bootstrap_availability() -> BootstrapAvailability:
+        return BootstrapAvailability(enabled=bootstrap is not None)
+
+    @api.post("/gateway-bootstrap")
+    def bootstrap_node(payload: BootstrapRequest, session: DBSession) -> BootstrapResult:
+        if bootstrap is None:
+            raise APIError(503, "gateway_bootstrap_disabled", "中心尚未配置 SSH 自动接入。")
+        if not bootstrap_lock.acquire(blocking=False):
+            raise APIError(409, "gateway_bootstrap_busy", "中心正在接入另一个节点，请稍后重试。")
+        endpoint = f"{payload.ip}:51820"
+        try:
+            region, node = bootstrap_target(session, payload, endpoint, bootstrap)
+            if node is not None and node.status != "provisioning":
+                return BootstrapResult(node=gateway_out(node, region, utcnow()), public_key=node.server_public_key)
+            session.rollback()
+
+            key = bootstrap.prepare(payload.ip, gateway_ca_certificate)
+            begin_write(session)
+            region, node = bootstrap_target(session, payload, endpoint, bootstrap)
+            if node is not None and node.server_public_key != key:
+                raise APIError(409, "gateway_bootstrap_key_changed", "该 IP 的 WireGuard 公钥已变化，请确认是否更换了机器。")
+            if node is None:
+                identity = uuid.uuid4()
+                node = add_gateway(
+                    session, GatewayCreate(name=f"{region.code[:40]}-{identity.hex[:12]}", region=region.code,
+                                           endpoint=endpoint, public_key=key),
+                    region, str(identity), bootstrap.token(str(identity)),
+                )
+            node_id = node.id
+            commit_admin(session, "node.bootstrap", node_id)
+
+            bootstrap.install(payload.ip, gateway_ca_certificate, key, {
+                "gateway_id": node_id, "token": bootstrap.token(node_id),
+            })
+            session.refresh(node)
+            session.refresh(region)
+            return BootstrapResult(node=gateway_out(node, region, utcnow()), public_key=key)
+        except (OSError, ValueError):
+            LOG.exception("Could not package automatic gateway installer")
+            raise APIError(503, "gateway_bundle_unavailable", "部署包暂不可用，请检查中心部署文件。") from None
+        finally:
+            bootstrap_lock.release()
 
     @api.get("/nodes/{node_id}")
     def get_node(node_id: uuid.UUID, session: DBSession) -> GatewayOut:

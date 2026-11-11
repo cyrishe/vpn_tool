@@ -57,6 +57,7 @@ td button + button { margin-left: 6px; }
 #notice { background: #e8f3fe; border: 1px solid #b9d6f7; border-radius: 8px; padding: 10px 14px; margin: 0 0 14px; }
 #notice.error { background: #fff0f0; border-color: #eac2c2; color: #a0282c; }
 .credential { border-color: #d9be78; background: #fffaf0; }
+#bootstrap-key, #bootstrap-result { overflow-wrap: anywhere; }
 .setup-step { margin-top: 18px; }
 .setup-step + .setup-step { border-top: 1px solid var(--line); padding-top: 18px; }
 .setup-step .fields { margin-top: 10px; }

@@ -1,6 +1,9 @@
 import base64
+from dataclasses import replace
 from datetime import timedelta
 from io import BytesIO
+import json
+import sys
 import tarfile
 
 import pytest
@@ -9,6 +12,7 @@ from sqlalchemy import select
 
 from control_plane.app import create_app
 from control_plane.config import Settings
+from control_plane.gateway_bootstrap import GatewayBootstrap
 from control_plane.models import GatewayNode
 from control_plane.security import issue_access_token
 from control_plane.time_utils import utcnow
@@ -66,6 +70,60 @@ def test_gateway_bundle_requires_admin_and_contains_only_installer_files(console
             "service/gateway_agent/agent.py",
             "service/gateway_agent/regional-gateway.service",
         }
+
+
+def test_ssh_bootstrap_reuses_identity_after_install_failure(console, tmp_path):
+    _, admin = console
+    helper = tmp_path / "ssh-helper"
+    recorded = tmp_path / "first-enrollment.json"
+    helper.write_text(
+        f"#!{sys.executable}\n"
+        "import io, json, os, shlex, subprocess, sys, tarfile\n"
+        "from pathlib import Path\n"
+        "assert 'VPN_GATEWAY_BOOTSTRAP_KEY' not in os.environ\n"
+        "assert sys.argv[1] == '8.8.4.4'\n"
+        "shell, option, command = shlex.split(sys.argv[2])\n"
+        "assert (shell, option) == ('bash', '-c')\n"
+        "subprocess.run(['/bin/bash', '-n', '-c', command], check=True)\n"
+        "with tarfile.open(fileobj=io.BytesIO(sys.stdin.buffer.read()), mode='r:gz') as bundle:\n"
+        "    if 'gateway.json' not in bundle.getnames():\n"
+        f"        print({SERVER_KEY!r})\n"
+        "        sys.exit(0)\n"
+        "    assert bundle.getmember('gateway.json').mode == 0o600\n"
+        "    enrollment = bundle.extractfile('gateway.json').read()\n"
+        f"recorded = Path({str(recorded)!r})\n"
+        "if not recorded.exists():\n"
+        "    recorded.write_bytes(enrollment)\n"
+        "    sys.exit(1)\n"
+        "assert json.loads(recorded.read_bytes()) == json.loads(enrollment)\n"
+    )
+    helper.chmod(0o700)
+    bootstrap = GatewayBootstrap(helper, "https://center.example.com", issue_access_token())
+    settings = replace(console[0].app.state.settings, database_url=f"sqlite:///{tmp_path / 'automatic.db'}",
+                       gateway_bootstrap=bootstrap)
+    with TestClient(create_app(settings), base_url="https://testserver") as client:
+        path = "/admin/api/gateway-bootstrap"
+        assert client.get(path).status_code == 401
+        assert client.get(path, headers=admin).json() == {"enabled": True}
+        create_region(client, admin, "shanghai", "上海")
+        create_region(client, admin, "beijing", "北京")
+        request = {"ip": "8.8.4.4", "region": "shanghai"}
+        assert client.post(path, headers=admin, json={**request, "ip": "127.0.0.1"}).status_code == 422
+        assert client.post(path, headers=admin, json=request).status_code == 502
+        credential = json.loads(recorded.read_text())
+        first = client.get("/admin/api/nodes", headers=admin).json()
+        assert len(first) == 1 and first[0]["id"] == credential["gateway_id"]
+        assert client.post(path, headers=admin, json={**request, "region": "beijing"}).status_code == 409
+        response = client.post(path, headers=admin, json=request)
+        assert response.status_code == 200
+        assert response.json() == {"node": first[0], "public_key": SERVER_KEY}
+        assert credential["token"] not in response.text
+        heartbeat = client.post("/v1/gateway/sync", headers={"Authorization": f"Bearer {credential['token']}"},
+                                json={"public_key": SERVER_KEY})
+        assert heartbeat.status_code == 200
+        response = client.post(path, headers=admin, json=request)
+        assert response.json()["node"]["status"] == "verifying"
+        assert not response.json()["node"]["accepting_connections"]
 
 
 def test_admin_api_rejects_user_and_cannot_echo_credentials(console):

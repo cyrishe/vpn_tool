@@ -43,6 +43,23 @@ sudo systemctl restart regional-control
 本地开发可设置同格式的 `VPN_ADMIN_TOKEN`，启动 `control_plane.app:app` 后访问
 `http://127.0.0.1:8017/admin`。
 
+### 启用自动接入
+
+在中心完成一次配置后，后台「节点 → 自动接入 Ubuntu 节点」只需要节点公网 IPv4 和地域。
+中心通过 SSH 安装 WireGuard，读取公钥，登记节点并启动 Agent。收到心跳后，在节点列表核验并上线。
+
+1. 在中心准备一个由 `regionalvpn` 服务用户运行的 SSH 脚本，接收两个参数 `IP` 和远端命令。脚本应通过 SSH 执行该命令，原样传递 stdin 和 stdout，返回远端退出码，不分配终端。节点使用已有的授权方式，且该账户可以执行 `sudo -n`。中心需能访问节点 SSH，节点安全组需开放 UDP 51820，并能访问中心 HTTPS。
+2. 可以用仓库里的 `deploy/ubuntu/gateway-ssh.sh` 作为密钥登录模板。把它以 0750 安装到 `/etc/regional-vpn/gateway-ssh`，设为 `root:regionalvpn`。模板用 `ubuntu` 账户和 `/etc/regional-vpn/gateway-ssh-key` 私钥，私钥设为服务用户所有、权限 0400。将核验过的主机公钥登记到 `/etc/regional-vpn/gateway-known-hosts`，让服务用户可读。自定义授权脚本也可以由你单独维护。
+3. 以 root 在中心创建权限为 0600 的 `/etc/regional-vpn/gateway-bootstrap.env`，填入以下配置。用 `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'` 生成接入密钥，保存到该文件。保留这把接入密钥以便中途失败后复用原登记。
+
+   ```dotenv
+   VPN_GATEWAY_SSH_HELPER=/etc/regional-vpn/gateway-ssh
+   VPN_GATEWAY_CONTROL_URL=https://中心公网地址
+   VPN_GATEWAY_BOOTSTRAP_KEY=填入上面生成的接入密钥
+   ```
+
+4. 安装新版中心服务单元，执行 `sudo systemctl daemon-reload` 和 `sudo systemctl restart regional-control`。自动接入失败时，在处理提示中的问题后用同一 IP 和地域重试。
+
 ## 常用操作
 
 ```bash

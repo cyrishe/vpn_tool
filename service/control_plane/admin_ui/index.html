@@ -31,6 +31,17 @@
       </nav>
       <section id="nodes" class="panel">
         <div class="section-heading"><h2>地域节点</h2><button id="refresh-nodes" class="subtle">刷新状态</button></div>
+        <section class="card">
+          <h3>自动接入 Ubuntu 节点</h3>
+          <p id="bootstrap-disabled" class="hint" hidden>中心尚未启用 SSH 自动接入。可使用下方的手动流程。</p>
+          <form id="bootstrap-node" class="fields" hidden>
+            <label>节点公网 IPv4<input name="ip" inputmode="decimal" maxlength="15" required></label>
+            <label>地域<input name="region" list="region-codes" placeholder="选择或填写地域代码" maxlength="63" required></label>
+            <div class="form-action"><button type="submit">安装并登记</button></div>
+          </form>
+          <p id="bootstrap-result" role="status" class="hint" hidden></p>
+          <p id="bootstrap-key" class="hint" hidden>WireGuard 公钥 <code></code></p>
+        </section>
         <details id="node-enrollment" class="card">
           <summary>接入新 Ubuntu 节点</summary>
           <form id="enroll">

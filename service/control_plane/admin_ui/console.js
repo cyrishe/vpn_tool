@@ -55,6 +55,9 @@ function lock() {
   byId("login-panel").hidden = false;
   byId("console").hidden = true;
   byId("logout").hidden = true;
+  byId("bootstrap-result").hidden = true;
+  byId("bootstrap-key").hidden = true;
+  byId("bootstrap-key").querySelector("code").textContent = "";
   offsets.node = offsets.region = 0;
   nodeFilter = "";
   renderPreparation();
@@ -229,6 +232,12 @@ async function loadRegions(offset = offsets.region) {
   paginate("region", regions.length, loadRegions);
 }
 
+async function loadBootstrapAvailability() {
+  const result = await api("gateway-bootstrap");
+  byId("bootstrap-node").hidden = !result.enabled;
+  byId("bootstrap-disabled").hidden = result.enabled;
+}
+
 function showAccount(account) {
   const summary = byId("account-summary");
   const expiration = account.expires_at ? new Date(account.expires_at).toLocaleString() : "无生效授权";
@@ -241,7 +250,7 @@ onSubmit("login", async (form) => {
   token = form.elements.token.value.trim();
   form.reset();
   try {
-    await Promise.all([loadNodes(), loadRegions()]);
+    await Promise.all([loadNodes(), loadRegions(), loadBootstrapAvailability()]);
     selectPanel("nodes");
     byId("login-panel").hidden = true;
     byId("console").hidden = false;
@@ -266,6 +275,39 @@ function validIPv4(value) {
   const parts = value.split(".");
   return parts.length === 4 && parts.every((part) => /^(0|[1-9][0-9]{0,2})$/.test(part) && Number(part) <= 255);
 }
+
+onSubmit("bootstrap-node", async (form) => {
+  const ip = form.elements.ip.value.trim();
+  const region = form.elements.region.value.trim();
+  if (!validIPv4(ip)) throw new Error("请输入有效的节点公网 IPv4。");
+  const status = byId("bootstrap-result");
+  const key = byId("bootstrap-key");
+  key.hidden = true;
+  status.hidden = false;
+  status.textContent = "正在连接 " + ip + " 并安装节点，首次安装可能需要几分钟。";
+  try {
+    const result = await api("gateway-bootstrap", "POST", { ip, region });
+    let node = result.node;
+    key.querySelector("code").textContent = result.public_key;
+    key.hidden = false;
+    status.textContent = node.name + " 已登记，正在等 Agent 心跳。";
+    for (let count = 0; node.status === "provisioning" && count < 5; count++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      node = await api("nodes/" + node.id);
+    }
+    status.textContent = node.name + (node.status === "verifying" ? " 已收到心跳。请核验后在节点列表点击上线。" :
+      node.status === "ready" ? " 已上线。" :
+      node.status === "provisioning" ? " 已登记，等待心跳。请稍后刷新节点列表。" :
+      " 已登记。请在节点列表查看当前状态。");
+    nodeFilter = region;
+    byId("filter-nodes").elements.region.value = region;
+    await loadNodes(0);
+  } catch (error) {
+    status.textContent = "本次接入未完成。请按提示处理，再用同一 IP 和地域重试。";
+    await loadNodes(0).catch(() => {});
+    throw error;
+  }
+});
 
 function centerOrigin(value) {
   if (!/^https:\/\/[a-z0-9.-]+(?::[0-9]{1,5})?\/?$/i.test(value)) return "";

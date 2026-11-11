@@ -8,6 +8,7 @@ User=regionalvpn
 Group=regionalvpn
 WorkingDirectory=/opt/regional-vpn/service
 EnvironmentFile=-/etc/regional-vpn/admin.env
+EnvironmentFile=-/etc/regional-vpn/gateway-bootstrap.env
 ExecStart=/opt/regional-vpn/.venv/bin/python -m uvicorn control_plane.ubuntu:app --host 0.0.0.0 --port 443 --workers 1 --ssl-certfile /etc/regional-vpn/control.crt --ssl-keyfile /etc/regional-vpn/control.key --no-proxy-headers --no-server-header --limit-concurrency 64 --backlog 128 --timeout-keep-alive 5
 Restart=on-failure
 RestartSec=3

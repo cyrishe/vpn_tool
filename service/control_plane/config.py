@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .gateway_bootstrap import GatewayBootstrap
 
 
 @dataclass(frozen=True)
@@ -15,6 +19,7 @@ class Settings:
     seed_demo_data: bool = True
     admin_token: str | None = field(default=None, repr=False)
     gateway_ca_certificate: Path | None = None
+    gateway_bootstrap: GatewayBootstrap | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":

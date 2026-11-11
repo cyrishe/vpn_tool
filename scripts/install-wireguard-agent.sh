@@ -17,13 +17,17 @@ if systemctl cat regional-control.service >/dev/null 2>&1; then
   echo 'This host already has the control-server unit. Use a dedicated Ubuntu gateway.' >&2
   exit 1
 fi
-if systemctl is-active --quiet regional-gateway.service; then
-  echo 'The gateway Agent is already running. Check its heartbeat in the admin console.'
-  exit 0
-fi
 if [[ -e "$destination" ]] && ! cmp -s -- "$credential" "$destination"; then
   echo 'A different gateway credential is installed. Check the machine and downloaded file.' >&2
   exit 1
+fi
+if systemctl is-active --quiet regional-gateway.service; then
+  if [[ ! -f "$destination" ]]; then
+    echo 'The running Agent has no expected credential file.' >&2
+    exit 1
+  fi
+  echo 'The gateway Agent is already running. Check its heartbeat in the admin console.'
+  exit 0
 fi
 if [[ $(wg show wg-regional listen-port) != 51820 ]]; then
   echo 'Prepare the wg-regional interface before installing the Agent.' >&2

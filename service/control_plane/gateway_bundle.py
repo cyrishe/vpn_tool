@@ -1,6 +1,7 @@
 """Build the Ubuntu node package from an explicit file list."""
 from io import BytesIO
 from pathlib import Path
+import json
 import ssl
 import tarfile
 
@@ -17,7 +18,7 @@ SOURCE_FILES = (
 )
 
 
-def build_gateway_bundle(public_certificate: Path | None) -> bytes:
+def build_gateway_bundle(public_certificate: Path | None, *, enrollment: dict[str, str] | None = None) -> bytes:
     data = BytesIO()
     with tarfile.open(fileobj=data, mode="w:gz") as archive:
         for name in SOURCE_FILES:
@@ -28,11 +29,13 @@ def build_gateway_bundle(public_certificate: Path | None) -> bytes:
             pem = ssl.DER_cert_to_PEM_cert(der)
             ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(cadata=pem)
             add_file(archive, "control.crt", pem.encode("ascii"))
+        if enrollment is not None:
+            add_file(archive, "gateway.json", json.dumps(enrollment).encode("ascii"), mode=0o600)
     return data.getvalue()
 
 
-def add_file(archive: tarfile.TarFile, name: str, content: bytes) -> None:
+def add_file(archive: tarfile.TarFile, name: str, content: bytes, mode: int = 0o644) -> None:
     member = tarfile.TarInfo(name)
     member.size = len(content)
-    member.mode = 0o644
+    member.mode = mode
     archive.addfile(member, BytesIO(content))
