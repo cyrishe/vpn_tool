@@ -31,15 +31,14 @@ python3 -m uvicorn control_plane.app:app --host 127.0.0.1 --port 8017
 可验证登录、服务端地域列表、模拟连接、切换、断开和退出。
 预览仅在 development 环境提供。浏览器不是系统 VPN 客户端。
 
-macOS App 源码已补齐；当前机器的 Swift PackageDescription 工具链链接错误
-尚未解决，原生构建/运行未验收。真实 WireGuard 网关与手机端按后续阶段交付。
-
 本目录现在包含两个相互独立的部分：
 
 1. 原有的 Tailscale Exit Node 个人测试脚本。
 2. 正在开发的 Regional VPN 产品原型，包括中心控制面和 macOS 客户端。
 
-产品原型当前只实现控制面闭环，macOS 客户端使用模拟隧道，不会修改本机路由。
+浏览器预览和 Swift Package 示例使用模拟隧道。真实 WireGuard 出口已有
+[命令行和 macOS 试运行客户端](docs/live-poc.md)。
+[macOS 系统 VPN 客户端](docs/macos-native-vpn.md)内置 WireGuard，已实现复用系统授权的流程，签名安装和真机验收待完成。
 架构和分阶段计划见 [docs/mvp-architecture.md](docs/mvp-architecture.md)。
 
 ## 产品原型快速启动

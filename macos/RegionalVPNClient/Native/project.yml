@@ -1,0 +1,73 @@
+name: RegionalVPNNative
+options:
+  deploymentTarget:
+    macOS: '14.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    ENABLE_HARDENED_RUNTIME: YES
+    MARKETING_VERSION: '0.2.0'
+    CURRENT_PROJECT_VERSION: '1'
+    CODE_SIGN_STYLE: Automatic
+    REGIONAL_VPN_CONTROL_URL: https://101.34.21.167
+packages:
+  WireGuardApple:
+    url: https://git.zx2c4.com/wireguard-apple
+    revision: 2fec12a6e1f6e3460b6ee483aa00ad29cddadab1
+targets:
+  Regional VPN:
+    type: application
+    platform: macOS
+    sources:
+      - App
+      - Shared
+      - path: ../Sources/RegionalVPNClientCore/APIClient.swift
+      - path: ../Sources/RegionalVPNClientCore/Models.swift
+      - path: ../Sources/RegionalVPNClientCore/CredentialStore.swift
+      - path: ../Sources/RegionalVPNClientCore/DeviceIdentity.swift
+      - path: LocalResources/control.cer
+        optional: true
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.regionalvpn.client
+        PRODUCT_NAME: Regional VPN
+        INFOPLIST_FILE: Config/App.plist
+        CODE_SIGN_ENTITLEMENTS: Config/App.entitlements
+    dependencies:
+      - sdk: NetworkExtension.framework
+      - sdk: SystemExtensions.framework
+      - target: com.regionalvpn.client.tunnel
+        embed: true
+        link: false
+  com.regionalvpn.client.tunnel:
+    type: system-extension
+    platform: macOS
+    sources:
+      - Provider
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.regionalvpn.client.tunnel
+        PRODUCT_NAME: com.regionalvpn.client.tunnel
+        INFOPLIST_FILE: Config/Provider.plist
+        CODE_SIGN_ENTITLEMENTS: Config/Provider.entitlements
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        LIBRARY_SEARCH_PATHS: '$(inherited) "$(BUILT_PRODUCTS_DIR)"'
+    dependencies:
+      - sdk: NetworkExtension.framework
+      - package: WireGuardApple
+        product: WireGuardKit
+    preBuildScripts:
+      - name: Build WireGuard Go Bridge
+        script: '/bin/bash "${SRCROOT}/build-wireguard.sh"'
+        basedOnDependencyAnalysis: false
+schemes:
+  RegionalVPN:
+    build:
+      targets:
+        Regional VPN: all
+    run:
+      config: Debug
+    archive:
+      config: Release

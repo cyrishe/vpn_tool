@@ -80,6 +80,10 @@ public struct ControlPlaneClient: ControlPlaneAPI, Sendable {
         )
     }
 
+    public func me(accessToken: String) async throws -> User {
+        try await requestWithoutBody(path: "/v1/me", method: "GET", accessToken: accessToken)
+    }
+
     public func registerDevice(
         accessToken: String,
         clientDeviceId: String,
