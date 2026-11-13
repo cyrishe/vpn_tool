@@ -1,5 +1,7 @@
 # Development Plan
 
+> Historical milestone plan. See [project handover](handover.md) for current implementation, deployment, and next tasks.
+
 ## Product scope
 
 Personal regional VPN, planned subscription CNY 10-20/month. Short connections

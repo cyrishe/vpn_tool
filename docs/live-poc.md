@@ -1,7 +1,7 @@
 # 真实网关联调（2026-11-06）
 
 > 历史拓扑记录：中心已迁到 Ubuntu，以下 Mac 中心与 SSH 转发不再使用。
-> 当前配置见 [固定 Ubuntu 部署](ubuntu-deployment.md)。
+> 当前配置见 [固定 Ubuntu 部署](ubuntu-deployment.md)，客户端验收状态见 [项目交接](handover.md)。
 
 ## 部署状态
 

@@ -1,5 +1,8 @@
 # Regional VPN
 
+项目进度、当前部署、待验收任务和省级节点采购调研见 [项目交接](docs/handover.md)。
+新环境请克隆 `regional-vpn-pilot` 分支。
+
 ## 固定服务器
 
 当前联调中心部署在 Ubuntu `101.34.21.167`，数据库为服务器上的 SQLite，
@@ -16,7 +19,7 @@
 核心服务端与地域节点接入见 [核心服务端](docs/core-server.md)。
 正式客户端需要系统 VPN 隧道；下方网页仅为既有流程预览。
 
-分模块计划和验收标准见 [开发计划](docs/development-plan.md)。
+早期分模块计划和验收标准见 [开发计划](docs/development-plan.md)。
 第一阶段提供浏览器可操作预览，连接仍为模拟，不改变 IP 或路由。
 
 ```bash
